@@ -87,3 +87,13 @@ export const PERMISSIONS = {
 } as const;
 
 export type PermissionKey = typeof PERMISSIONS[keyof typeof PERMISSIONS];
+
+// Role Priority Levels (Higher number = Higher priority)
+// 策略二：權重優先
+export const ROLE_LEVELS: Record<string, number> = {
+  'ADMIN': 100,
+  'IT': 80,
+  'MANAGER': 50,
+  'USER': 10,
+  'VIEWER': 0
+};

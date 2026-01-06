@@ -12,7 +12,7 @@ import LogModal from './components/LogModal';
 import LoginPage from './components/LoginPage'; 
 import AccessControlModal from './components/AccessControlModal';
 import PermissionGuard from './components/PermissionGuard'; // Import Permission Guard
-import { Patent, PatentStatus, EmailLog, PERMISSIONS, PermissionKey } from './types';
+import { Patent, PatentStatus, EmailLog, PERMISSIONS, PermissionKey, ROLE_LEVELS } from './types';
 import * as XLSX from 'xlsx';
 import { supabase } from './services/supabaseService';
 import { Session } from '@supabase/supabase-js';
@@ -90,42 +90,50 @@ const App: React.FC = () => {
     const lowerEmail = email.toLowerCase().trim();
     const domain = lowerEmail.split('@')[1];
     
-    let role = 'USER'; // Default
+    // 策略二：權重優先 (Priority Strategy)
+    // 1. 預設角色
+    let finalRole = 'USER'; 
+    let highestPriority = -1;
 
     try {
-        // 1. Check Email Rule
-        const { data: emailRule } = await supabase
+        // 2. 抓取所有符合的 Email 規則 (可能有多筆，例如 ADMIN 和 IT)
+        const { data: emailRules } = await supabase
             .from('access_control')
             .select('role')
             .eq('type', 'EMAIL')
-            .eq('value', lowerEmail)
-            .single();
+            .eq('value', lowerEmail);
         
-        if (emailRule) {
-            role = emailRule.role;
-        } else {
-            // 2. Check Domain Rule
-            const { data: domainRule } = await supabase
-                .from('access_control')
-                .select('role')
-                .eq('type', 'DOMAIN')
-                .eq('value', domain)
-                .maybeSingle();
-            
-            if (domainRule) {
-                role = domainRule.role;
-            }
+        // 3. 抓取所有符合的 Domain 規則
+        const { data: domainRules } = await supabase
+            .from('access_control')
+            .select('role')
+            .eq('type', 'DOMAIN')
+            .eq('value', domain);
+
+        const allRules = [...(emailRules || []), ...(domainRules || [])];
+
+        // 4. 計算最高權重
+        if (allRules.length > 0) {
+            allRules.forEach(rule => {
+                const priority = ROLE_LEVELS[rule.role] || 0;
+                if (priority > highestPriority) {
+                    highestPriority = priority;
+                    finalRole = rule.role;
+                }
+            });
         }
     } catch (e) {
         console.error("Role check error:", e);
-        if (lowerEmail === DEFAULT_ADMIN_EMAIL) role = 'ADMIN';
+        if (lowerEmail === DEFAULT_ADMIN_EMAIL) finalRole = 'ADMIN';
     }
     
-    setCurrentUserRole(role);
-    await fetchUserPermissions(role);
+    // 5. 設定最終角色
+    console.log(`User ${email} resolved to role: ${finalRole} (Priority: ${highestPriority})`);
+    setCurrentUserRole(finalRole);
+    await fetchUserPermissions(finalRole);
     
     // Log Login Action
-    logAction(email, 'LOGIN', 'System', { role });
+    logAction(email, 'LOGIN', 'System', { role: finalRole, computedFrom: 'Priority Strategy' });
   };
 
   useEffect(() => {
@@ -155,9 +163,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleLogout = async () => {
-    if (session?.user?.email) {
-        await logAction(session.user.email, 'LOGOUT', 'System');
-    }
+    // 移除 LOGOUT 日誌紀錄
     await supabase.auth.signOut();
     setSession(null); 
     setIsMockSession(false);
@@ -290,7 +296,7 @@ const App: React.FC = () => {
 
   const handleConfirmDelete = async () => {
     if (patentToDelete) {
-        await logAction(session?.user.email, 'DELETE_PATENT', patentToDelete.id, { name: patentToDelete.name });
+        // await logAction(session?.user.email, 'DELETE_PATENT', patentToDelete.id, { name: patentToDelete.name });
         try {
             const { error } = await supabase
                 .from('patents')
@@ -317,7 +323,7 @@ const App: React.FC = () => {
         alert('權限不足');
         return false;
     }
-    await logAction(session?.user.email, 'SEND_EMAIL', patent.id, { subject });
+    // await logAction(session?.user.email, 'SEND_EMAIL', patent.id, { subject });
     // ... existing email logic ...
     await new Promise(resolve => setTimeout(resolve, 1500));
     const newLog: EmailLog = {
@@ -338,7 +344,7 @@ const App: React.FC = () => {
         return;
     }
     const incomingPatents = Array.isArray(newData) ? newData : [newData];
-    await logAction(session?.user.email, 'IMPORT_DATA', 'Batch', { count: incomingPatents.length });
+    // await logAction(session?.user.email, 'IMPORT_DATA', 'Batch', { count: incomingPatents.length });
     
     // ... existing import logic ...
     const sanitizedData = incomingPatents.map(p => ({ ...p, annuityYear: Number(p.annuityYear) || 1 }));
@@ -360,7 +366,7 @@ const App: React.FC = () => {
   };
 
   const handleUpdatePatent = async (updatedPatent: Patent) => {
-    await logAction(session?.user.email, 'UPDATE_PATENT', updatedPatent.id);
+    // await logAction(session?.user.email, 'UPDATE_PATENT', updatedPatent.id);
     // ... update logic ...
     try {
         const { error } = await supabase.from('patents').update({ ...updatedPatent }).eq('id', updatedPatent.id);
@@ -380,7 +386,7 @@ const App: React.FC = () => {
         alert('權限不足');
         return;
     }
-    await logAction(session?.user.email, 'EXPORT_DATA', 'All Patents');
+    // await logAction(session?.user.email, 'EXPORT_DATA', 'All Patents');
     // ... existing export logic ...
     const exportData = filteredPatents.map(p => ({
       "專利名稱": p.name,

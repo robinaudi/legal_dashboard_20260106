@@ -9,31 +9,31 @@ const LoginPage: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [isSent, setIsSent] = useState(false);
 
-  // 檢查資料庫權限
+  // 檢查資料庫權限 (寬鬆模式：只要有任何一條規則匹配即可)
   const checkPermissionFromDB = async (email: string): Promise<boolean> => {
     const lowerEmail = email.toLowerCase().trim();
     const domain = lowerEmail.split('@')[1];
 
     try {
-        // 1. 查詢是否符合 EMAIL 規則
-        const { data: emailMatch, error: emailError } = await supabase
+        // 1. 查詢是否符合 EMAIL 規則 (可能有多筆，使用 count 或 limit)
+        const { data: emailMatches } = await supabase
             .from('access_control')
-            .select('*')
+            .select('id')
             .eq('type', 'EMAIL')
             .eq('value', lowerEmail)
-            .single();
+            .limit(1);
 
-        if (emailMatch) return true;
+        if (emailMatches && emailMatches.length > 0) return true;
 
         // 2. 查詢是否符合 DOMAIN 規則
-        const { data: domainMatch, error: domainError } = await supabase
+        const { data: domainMatches } = await supabase
             .from('access_control')
-            .select('*')
+            .select('id')
             .eq('type', 'DOMAIN')
             .eq('value', domain)
-            .maybeSingle();
+            .limit(1);
 
-        if (domainMatch) return true;
+        if (domainMatches && domainMatches.length > 0) return true;
 
     } catch (e) {
         console.error("Permission check failed:", e);
@@ -61,8 +61,6 @@ const LoginPage: React.FC = () => {
 
     try {
       // 2. 發送 Magic Link
-      // 注意：我們移除了 options.emailRedirectTo 設定
-      // 請務必至 Supabase Dashboard -> Authentication -> URL Configuration 設定正確的 Site URL
       const { error } = await supabase.auth.signInWithOtp({
         email: lowerEmail,
       });
