@@ -51,6 +51,39 @@ export interface AccessRule {
   id: string;
   value: string;       // Email or Domain
   type: 'EMAIL' | 'DOMAIN';
-  role: 'ADMIN' | 'USER';
+  role: string;        // Change to string to support dynamic roles
   description?: string;
 }
+
+// --- New Types for Logging & RBAC ---
+
+export interface ActionLog {
+  id: string;
+  user_email: string;
+  action: string;
+  target?: string;
+  details?: any;
+  created_at: string;
+}
+
+export interface AppRole {
+  role_name: string;
+  permissions: string[];
+  description?: string;
+}
+
+// Permission Keys Dictionary
+export const PERMISSIONS = {
+  VIEW_DASHBOARD: 'view_dashboard',
+  VIEW_LIST: 'view_list',
+  VIEW_LOGS: 'view_logs',        // 查看系統日誌
+  MANAGE_ACCESS: 'manage_access',// 管理權限與角色
+  EDIT_PATENT: 'edit_patent',
+  DELETE_PATENT: 'delete_patent',
+  IMPORT_DATA: 'import_data',
+  EXPORT_DATA: 'export_data',
+  SEND_EMAIL: 'send_email',
+  AI_CHAT: 'ai_chat',
+} as const;
+
+export type PermissionKey = typeof PERMISSIONS[keyof typeof PERMISSIONS];

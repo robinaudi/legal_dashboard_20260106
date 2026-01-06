@@ -148,7 +148,7 @@ const PatentStats: React.FC<PatentStatsProps> = ({ patents }) => {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 col-span-1 md:col-span-1 min-w-0">
             <h3 className="text-gray-700 text-sm font-medium mb-2">案件類型佔比</h3>
             <div className="h-52 w-full">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                 <PieChart>
                     <Pie
                         data={typeData}
@@ -183,7 +183,7 @@ const PatentStats: React.FC<PatentStatsProps> = ({ patents }) => {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 col-span-1 md:col-span-2 min-w-0">
              <h3 className="text-gray-700 text-sm font-medium mb-2">申請國家分佈</h3>
              <div className="h-52 w-full">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <BarChart data={countryData} layout="vertical" margin={{ top: 5, right: 50, left: 10, bottom: 5 }}>
                         <XAxis type="number" hide />
                         <YAxis dataKey="name" type="category" width={30} tick={{fontSize: 10}} />
@@ -251,7 +251,7 @@ const PatentStats: React.FC<PatentStatsProps> = ({ patents }) => {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[320px] min-w-0">
             <h3 className="text-gray-700 font-bold mb-4">專利權人 x 案件類型分佈</h3>
             <div className="h-[240px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <BarChart data={typeByPatenteeData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                         <XAxis dataKey="name" tick={{fontSize: 11}} />
@@ -276,7 +276,7 @@ const PatentStats: React.FC<PatentStatsProps> = ({ patents }) => {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[320px] md:col-span-2 min-w-0">
             <h3 className="text-gray-700 font-bold mb-4">專利權人 x 申請國家分佈</h3>
             <div className="h-[240px] w-full">
-                 <ResponsiveContainer width="100%" height="100%">
+                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <BarChart data={countryByPatenteeData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                         <XAxis dataKey="name" tick={{fontSize: 11}} />

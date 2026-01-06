@@ -61,13 +61,10 @@ const LoginPage: React.FC = () => {
 
     try {
       // 2. 發送 Magic Link
+      // 注意：我們移除了 options.emailRedirectTo 設定
+      // 請務必至 Supabase Dashboard -> Authentication -> URL Configuration 設定正確的 Site URL
       const { error } = await supabase.auth.signInWithOtp({
         email: lowerEmail,
-        options: {
-            // 在開發環境下，這通常會重定向回 localhost:3000
-            // 生產環境需要在 Supabase Auth Settings 設定 Site URL
-            emailRedirectTo: window.location.origin, 
-        }
       });
 
       if (error) throw error;

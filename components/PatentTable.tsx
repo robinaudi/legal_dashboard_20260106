@@ -7,9 +7,11 @@ interface PatentTableProps {
   onEdit: (patent: Patent) => void;
   onPreviewEmail: (patent: Patent) => void;
   onDelete: (patent: Patent) => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
-const PatentTable: React.FC<PatentTableProps> = ({ patents, onEdit, onPreviewEmail, onDelete }) => {
+const PatentTable: React.FC<PatentTableProps> = ({ patents, onEdit, onPreviewEmail, onDelete, canEdit = true, canDelete = true }) => {
   
   const getStatusColor = (status: PatentStatus) => {
     switch (status) {
@@ -35,7 +37,6 @@ const PatentTable: React.FC<PatentTableProps> = ({ patents, onEdit, onPreviewEma
     }
   };
 
-  // Helper to check if date is within 3 months (approx 90 days)
   const getDateStatus = (dateString: string) => {
     const today = new Date();
     const due = new Date(dateString);
@@ -83,9 +84,7 @@ const PatentTable: React.FC<PatentTableProps> = ({ patents, onEdit, onPreviewEma
                       {patent.status}
                    </span>
                 </td>
-                <td className="px-6 py-4 font-medium text-gray-900">
-                  {patent.country}
-                </td>
+                <td className="px-6 py-4 font-medium text-gray-900">{patent.country}</td>
                 <td className="px-6 py-4 min-w-[200px]">
                   <div className="flex flex-col">
                     <span className="font-semibold text-gray-900 mb-1">{patent.name}</span>
@@ -108,14 +107,8 @@ const PatentTable: React.FC<PatentTableProps> = ({ patents, onEdit, onPreviewEma
                     </div>
                   </div>
                 </td>
-                <td className="px-6 py-4 text-gray-900 font-medium whitespace-nowrap">
-                   {patent.patentee}
-                </td>
-                <td className="px-6 py-4 text-sm text-gray-600 min-w-[120px]">
-                    <div>
-                        {patent.inventor}
-                    </div>
-                </td>
+                <td className="px-6 py-4 text-gray-900 font-medium whitespace-nowrap">{patent.patentee}</td>
+                <td className="px-6 py-4 text-sm text-gray-600 min-w-[120px]"><div>{patent.inventor}</div></td>
                 <td className="px-6 py-4 font-mono text-xs text-gray-600 whitespace-nowrap">
                     <div className="flex flex-col gap-1">
                         <div><span className="text-gray-400 w-8 inline-block">申:</span>{patent.appNumber}</div>
@@ -128,9 +121,7 @@ const PatentTable: React.FC<PatentTableProps> = ({ patents, onEdit, onPreviewEma
                         <div><span className="text-gray-400 w-8 inline-block">公:</span>{patent.pubDate}</div>
                     </div>
                 </td>
-                <td className="px-6 py-4 text-xs text-gray-500 min-w-[150px]">
-                  {patent.duration}
-                </td>
+                <td className="px-6 py-4 text-xs text-gray-500 min-w-[150px]">{patent.duration}</td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex flex-col gap-1">
                      <div className="flex items-center gap-2">
@@ -143,9 +134,6 @@ const PatentTable: React.FC<PatentTableProps> = ({ patents, onEdit, onPreviewEma
                                 className="group relative focus:outline-none"
                              >
                                 <Mail size={16} className="text-orange-500 hover:text-orange-700 hover:scale-110 transition-all" />
-                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-36 bg-gray-800 text-white text-[10px] p-1.5 rounded text-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">
-                                    期限將至，點擊預覽通知信
-                                </span>
                              </button>
                          )}
                      </div>
@@ -162,24 +150,28 @@ const PatentTable: React.FC<PatentTableProps> = ({ patents, onEdit, onPreviewEma
                 </td>
                 <td className="px-6 py-4 text-right whitespace-nowrap">
                   <div className="flex justify-end gap-2">
-                    <button
-                        onClick={() => onEdit(patent)}
-                        className="text-gray-500 hover:text-blue-600 bg-gray-50 hover:bg-blue-50 p-2 rounded-lg transition-colors border border-transparent hover:border-blue-100 cursor-pointer"
-                        title="修改資料"
-                    >
-                        <Edit size={16} />
-                    </button>
-                    <button
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onDelete(patent);
-                        }}
-                        className="text-gray-500 hover:text-red-600 bg-gray-50 hover:bg-red-50 p-2 rounded-lg transition-colors border border-transparent hover:border-red-100 cursor-pointer"
-                        title="刪除資料"
-                    >
-                        <Trash2 size={16} className="pointer-events-none" />
-                    </button>
+                    {canEdit && (
+                        <button
+                            onClick={() => onEdit(patent)}
+                            className="text-gray-500 hover:text-blue-600 bg-gray-50 hover:bg-blue-50 p-2 rounded-lg transition-colors border border-transparent hover:border-blue-100 cursor-pointer"
+                            title="修改資料"
+                        >
+                            <Edit size={16} />
+                        </button>
+                    )}
+                    {canDelete && (
+                        <button
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onDelete(patent);
+                            }}
+                            className="text-gray-500 hover:text-red-600 bg-gray-50 hover:bg-red-50 p-2 rounded-lg transition-colors border border-transparent hover:border-red-100 cursor-pointer"
+                            title="刪除資料"
+                        >
+                            <Trash2 size={16} className="pointer-events-none" />
+                        </button>
+                    )}
                   </div>
                 </td>
               </tr>
