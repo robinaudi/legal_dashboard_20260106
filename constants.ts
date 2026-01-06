@@ -1,24 +1,17 @@
 import { Patent, PatentStatus, PatentType } from './types';
 
 // ==========================================
-// 權限設定 (Access Control Configuration)
+// 系統版本設定 (System Version)
+// ==========================================
+export const APP_VERSION = 'v1.2.0 (DB Auth)';
+
+// ==========================================
+// 權限設定 (Access Control)
+// 注意：現在權限已改為從 Supabase 資料庫 'access_control' 表讀取。
+// 以下常數僅作為備用或初始參考，實際邏輯在 App.tsx 與 LoginPage.tsx
 // ==========================================
 
-// 1. 允許的公司網域 (只要是這個 @後綴 的信箱都能登入)
-export const ALLOWED_DOMAINS = [
-  '91app.com', 
-  'nine-yi.com'
-];
-
-// 2. 特例允許的完整 Email 清單 (開發者或外部合作夥伴)
-// 包含預設的三位最高管理員
-export const ALLOWED_EMAILS = [
-  'robinhsu@91app.com',
-  'rachelchiang@nine-yi.com',
-  'dorafu@nine-yi.com',
-  'developer@gmail.com',
-  'admin@patentvault.com'
-];
+export const DEFAULT_ADMIN_EMAIL = 'robinhsu@91app.com';
 
 // ==========================================
 // Mock Data

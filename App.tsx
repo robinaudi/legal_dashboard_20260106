@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LayoutGrid, List, Search, Bell, Menu, MessageSquare, Briefcase, Upload, Download, History, Loader2, CloudOff, Cloud, Database, AlertTriangle, LogOut, User, LogIn } from 'lucide-react';
-import { MOCK_PATENTS, ALLOWED_DOMAINS, ALLOWED_EMAILS } from './constants';
+import { LayoutGrid, List, Search, Bell, Menu, MessageSquare, Briefcase, Upload, Download, History, Loader2, CloudOff, Cloud, Database, AlertTriangle, LogOut, User, LogIn, ShieldAlert, Shield } from 'lucide-react';
+import { MOCK_PATENTS, DEFAULT_ADMIN_EMAIL, APP_VERSION } from './constants';
 import PatentTable from './components/PatentTable';
 import PatentStats from './components/PatentStats';
 import AIChat from './components/AIChat';
@@ -9,8 +9,9 @@ import EditModal from './components/EditModal';
 import EmailPreviewModal from './components/EmailPreviewModal';
 import DeleteConfirmModal from './components/DeleteConfirmModal';
 import LogModal from './components/LogModal';
-import LoginPage from './components/LoginPage'; // Import Login Page
-import { Patent, PatentStatus, EmailLog } from './types';
+import LoginPage from './components/LoginPage'; 
+import AccessControlModal from './components/AccessControlModal'; // Import New Modal
+import { Patent, PatentStatus, EmailLog, AccessRule } from './types';
 import * as XLSX from 'xlsx';
 import { supabase } from './services/supabaseService';
 import { Session } from '@supabase/supabase-js';
@@ -20,6 +21,7 @@ const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [isMockSession, setIsMockSession] = useState(false);
+  const [currentUserRole, setCurrentUserRole] = useState<'ADMIN' | 'USER'>('USER');
 
   const [viewMode, setViewMode] = useState<'dashboard' | 'list'>('dashboard');
   const [showOnlyUrgent, setShowOnlyUrgent] = useState(false);
@@ -42,31 +44,72 @@ const App: React.FC = () => {
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [isAccessModalOpen, setIsAccessModalOpen] = useState(false); // New Access Modal
   
   const [selectedPatent, setSelectedPatent] = useState<Patent | null>(null);
   const [patentToDelete, setPatentToDelete] = useState<Patent | null>(null);
   const [alertCount, setAlertCount] = useState(0);
 
-  // Ref to prevent double seeding
   const hasCheckedSeed = useRef(false);
 
   // ------------------------------------------------------------------
   // 0. Auth Check & Default Login Logic
   // ------------------------------------------------------------------
+  
+  // 檢查使用者角色 (Check User Role from DB)
+  const checkUserRole = async (email: string) => {
+    const lowerEmail = email.toLowerCase().trim();
+    const domain = lowerEmail.split('@')[1];
+    
+    // Default to USER
+    let role: 'ADMIN' | 'USER' = 'USER';
+
+    try {
+        // 1. Check exact email rule (Higher priority)
+        const { data: emailRule } = await supabase
+            .from('access_control')
+            .select('role')
+            .eq('type', 'EMAIL')
+            .eq('value', lowerEmail)
+            .single();
+        
+        if (emailRule) {
+            role = emailRule.role as 'ADMIN' | 'USER';
+        } else {
+            // 2. Check domain rule
+            const { data: domainRule } = await supabase
+                .from('access_control')
+                .select('role')
+                .eq('type', 'DOMAIN')
+                .eq('value', domain)
+                .maybeSingle(); // Use maybeSingle to avoid error if multiple domains (shouldn't happen ideally) or none
+            
+            if (domainRule) {
+                role = domainRule.role as 'ADMIN' | 'USER';
+            }
+        }
+    } catch (e) {
+        console.error("Role check error:", e);
+    }
+    
+    setCurrentUserRole(role);
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         setSession(session);
         setIsMockSession(false);
+        if(session.user.email) checkUserRole(session.user.email);
       } else {
         // 預設無痛登入 (Default Bypass Login)
-        // 自動使用第一個允許的 Email (Robin) 作為預設使用者
         console.log("No Supabase session found. Using Default Admin Mode.");
-        const defaultUserEmail = ALLOWED_EMAILS[0]; // robinhsu@91app.com
         setSession({
-            user: { email: defaultUserEmail }
+            user: { email: DEFAULT_ADMIN_EMAIL }
         } as Session);
         setIsMockSession(true);
+        // Mock session is ADMIN by default for dev convenience, or query DB too
+        checkUserRole(DEFAULT_ADMIN_EMAIL); 
       }
       setIsAuthChecking(false);
     });
@@ -77,9 +120,8 @@ const App: React.FC = () => {
       if (session) {
         setSession(session);
         setIsMockSession(false);
+        if(session.user.email) checkUserRole(session.user.email);
       }
-      // If signed out, we might want to go back to mock session or login page.
-      // Current behavior: if explicit sign out, session becomes null.
     });
 
     return () => subscription.unsubscribe();
@@ -87,15 +129,15 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setSession(null); // This triggers the LoginPage
+    setSession(null); 
     setIsMockSession(false);
   };
 
   // ------------------------------------------------------------------
-  // 1. Fetch Data (Only if Session exists)
+  // 1. Fetch Data 
   // ------------------------------------------------------------------
   useEffect(() => {
-    if (!session) return; // Don't fetch if not logged in (even mock)
+    if (!session) return; 
 
     const initData = async () => {
       setIsLoading(true);
@@ -143,14 +185,12 @@ const App: React.FC = () => {
               .order('created_at', { ascending: false });
 
           if (logError) {
-              console.warn("Log table fetch warning:", logError.message);
               setLogError(true);
           } else {
               setEmailLogs(logData || []);
               setLogError(false);
           }
       } catch (error) {
-          console.warn("Log fetch failed:", error);
           setLogError(true);
       } finally {
           setIsLoading(false);
@@ -158,20 +198,7 @@ const App: React.FC = () => {
     };
 
     initData();
-  }, [session]); // Dependency: run when session changes to true
-
-  // Helper: Check if logged in user is actually allowed (Double Check)
-  const isUserAllowed = () => {
-    if (!session?.user?.email) return false;
-    const email = session.user.email.toLowerCase();
-    const domain = email.split('@')[1];
-    
-    if (ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(email)) return true;
-    if (ALLOWED_DOMAINS.map(d => d.toLowerCase()).includes(domain)) return true;
-    
-    return false;
-  };
-
+  }, [session]); 
 
   const performSeed = async () => {
     try {
@@ -193,13 +220,48 @@ const App: React.FC = () => {
   };
 
   const handleManualSeed = async () => {
-    if (!confirm('確定要強制重新同步範例資料嗎？\n這將會覆蓋 ID 相同的現有資料。')) return;
+    // 改用更安全的確認方式 (簡單的 confirm，未來可改為 Modal)
+    if (!confirm("⚠️ 危險操作：確定要重置資料庫嗎？\n\n系統將會先自動備份當前資料，然後覆蓋為範例資料。")) return;
+
     setIsLoading(true);
-    await performSeed();
-    const { data } = await supabase.from('patents').select('*').order('created_at', { ascending: false });
-    setPatents(data || []);
-    setIsLoading(false);
-    alert('同步完成！');
+
+    try {
+        // 2. 自動備份 (Auto Backup)
+        console.log("Starting Backup...");
+        const { data: currentData, error: fetchError } = await supabase.from('patents').select('*');
+        if (fetchError) throw fetchError;
+
+        if (currentData && currentData.length > 0) {
+            const backupId = `backup-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+            const backupPayload = currentData.map(item => ({
+                backupId: backupId,
+                originalId: item.id,
+                patentData: item 
+            }));
+
+            const { error: backupError } = await supabase.from('patent_backups').insert(backupPayload);
+            if (backupError) {
+                // 如果備份表不存在，Supabase 會報錯，這裡 catch 住並警告
+                throw new Error("備份失敗！(可能原因：patent_backups 資料表尚未建立)");
+            }
+        }
+
+        // 3. 執行重置 (Seed)
+        const success = await performSeed();
+        if (!success) throw new Error("寫入範例資料時發生錯誤。");
+
+        // 4. Reload UI
+        const { data: newData } = await supabase.from('patents').select('*').order('created_at', { ascending: false });
+        setPatents(newData || []);
+        
+        alert("✅ 重置成功！舊資料已安全備份。");
+
+    } catch (error: any) {
+        console.error(error);
+        alert(`❌ 操作失敗：${error.message}`);
+    } finally {
+        setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -288,7 +350,6 @@ const App: React.FC = () => {
         return true; 
     } catch (error) {
         console.error('Error saving log:', error);
-        alert('郵件已發送，但紀錄儲存失敗。');
         return true; 
     }
   };
@@ -375,28 +436,8 @@ const App: React.FC = () => {
     );
   }
 
-  // Not logged in -> Show Login Page (Only if not in Bypass Mode and not logged in)
   if (!session) {
       return <LoginPage />;
-  }
-
-  // Logged in but not on allowlist (Fail safe)
-  if (!isUserAllowed()) {
-      return (
-          <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-              <div className="bg-white p-8 rounded-xl shadow-lg max-w-md text-center">
-                  <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <CloudOff size={32} />
-                  </div>
-                  <h2 className="text-xl font-bold text-gray-800 mb-2">存取被拒絕</h2>
-                  <p className="text-gray-600 mb-6">
-                      您的帳號 ({session.user.email}) 不在允許的清單內。<br/>
-                      請聯繫管理員開放權限。
-                  </p>
-                  <button onClick={handleLogout} className="text-blue-600 hover:underline">登出 / 切換帳號</button>
-              </div>
-          </div>
-      );
   }
 
   return (
@@ -442,23 +483,23 @@ const App: React.FC = () => {
           >
             <History size={18} className="mr-3 group-hover:text-blue-400" />
             發送紀錄
-            {!logError && emailLogs.length > 0 && <span className="ml-auto text-slate-500 text-xs">{emailLogs.length}</span>}
           </button>
           
-          {/* Seed Data Button */}
-          <div className="mt-4 pt-4 border-t border-slate-800">
-             <button 
-                onClick={handleManualSeed}
-                disabled={isLoading}
-                className="flex items-center w-full px-3 py-2.5 rounded-lg text-sm transition-all hover:bg-emerald-900/30 text-emerald-400 border border-transparent hover:border-emerald-800 opacity-70 hover:opacity-100"
-              >
-                {isLoading ? <Loader2 size={18} className="mr-3 animate-spin" /> : <Database size={18} className="mr-3" />}
-                {isLoading ? '同步中...' : '重置範例資料'}
-              </button>
-          </div>
+          {/* Admin Tools */}
+          {currentUserRole === 'ADMIN' && (
+            <div className="mt-4 pt-4 border-t border-slate-800 space-y-2">
+                <button 
+                    onClick={() => setIsAccessModalOpen(true)}
+                    className="flex items-center w-full px-3 py-2.5 rounded-lg text-sm transition-all hover:bg-indigo-900/20 text-indigo-400 border border-transparent hover:border-indigo-900/50 group"
+                >
+                    <Shield size={18} className="mr-3 group-hover:text-indigo-300" />
+                    權限管理
+                </button>
+            </div>
+          )}
         </nav>
 
-        {/* System Status Widget (Restored) */}
+        {/* System Status Widget */}
         <div className="px-4 mb-3">
             <div className={`bg-slate-800/40 rounded-xl p-4 border ${isError ? 'border-red-500/30' : 'border-slate-700/50'}`}>
                 <div className="flex items-center gap-2 mb-3 text-slate-400">
@@ -482,19 +523,6 @@ const App: React.FC = () => {
             </div>
         </div>
         
-        {/* AI Shortcut (Restored) */}
-         <div className="px-4 mb-3">
-             <div className="bg-blue-600/10 border border-blue-500/20 rounded-xl p-4 cursor-pointer hover:bg-blue-600/20 transition-all group" onClick={() => setIsChatOpen(true)}>
-                <div className="flex items-center gap-3 mb-2">
-                    <div className="bg-gradient-to-br from-blue-500 to-indigo-500 rounded-lg p-1.5 text-white">
-                        <MessageSquare size={14} />
-                    </div>
-                    <span className="text-xs font-semibold text-white group-hover:text-blue-400">AI 智慧助手</span>
-                </div>
-                <p className="text-[10px] text-slate-400 leading-relaxed">有任何法律問題？即刻詢問專利 AI。</p>
-             </div>
-        </div>
-
         {/* User Profile & Logout */}
         <div className="p-4 border-t border-slate-800 bg-slate-900/50">
             <div className="flex items-center gap-3 mb-3">
@@ -504,8 +532,7 @@ const App: React.FC = () => {
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white truncate">{session.user.email}</p>
                     <p className="text-xs text-slate-500 truncate flex items-center gap-1">
-                        {isMockSession ? '預設管理員' : '已登入'}
-                        {isMockSession && <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>}
+                        {currentUserRole === 'ADMIN' ? '系統管理員' : '一般使用者'}
                     </p>
                 </div>
             </div>
@@ -525,6 +552,11 @@ const App: React.FC = () => {
                     </>
                 )}
             </button>
+            <div className="mt-4 text-center">
+                 <span className="text-[10px] text-slate-600 font-mono bg-slate-800/50 px-2 py-0.5 rounded border border-slate-800">
+                    {APP_VERSION}
+                 </span>
+            </div>
         </div>
       </aside>
 
@@ -567,7 +599,6 @@ const App: React.FC = () => {
                     新增專利
                  </button>
                  
-                 {/* Mobile Logout (Visible on small screens) */}
                  <button onClick={handleLogout} className="md:hidden p-2 text-gray-500">
                     <LogOut size={20} />
                  </button>
@@ -702,6 +733,11 @@ const App: React.FC = () => {
         isOpen={isLogModalOpen}
         onClose={() => setIsLogModalOpen(false)}
         logs={emailLogs}
+      />
+      
+      <AccessControlModal 
+        isOpen={isAccessModalOpen}
+        onClose={() => setIsAccessModalOpen(false)}
       />
     </div>
   );

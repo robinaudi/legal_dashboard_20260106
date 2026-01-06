@@ -46,3 +46,11 @@ export interface EmailLog {
   status: 'Success' | 'Failed';
   errorMessage?: string;
 }
+
+export interface AccessRule {
+  id: string;
+  value: string;       // Email or Domain
+  type: 'EMAIL' | 'DOMAIN';
+  role: 'ADMIN' | 'USER';
+  description?: string;
+}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../services/supabaseService';
 import { Lock, Mail, ArrowRight, ShieldCheck, Loader2, AlertCircle } from 'lucide-react';
-import { ALLOWED_DOMAINS, ALLOWED_EMAILS } from '../constants';
+import { APP_VERSION } from '../constants';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -9,16 +9,37 @@ const LoginPage: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [isSent, setIsSent] = useState(false);
 
-  const checkPermission = (email: string) => {
+  // 檢查資料庫權限
+  const checkPermissionFromDB = async (email: string): Promise<boolean> => {
     const lowerEmail = email.toLowerCase().trim();
     const domain = lowerEmail.split('@')[1];
 
-    // 1. Check Allowlist (Full Email)
-    if (ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(lowerEmail)) return true;
+    try {
+        // 1. 查詢是否符合 EMAIL 規則
+        const { data: emailMatch, error: emailError } = await supabase
+            .from('access_control')
+            .select('*')
+            .eq('type', 'EMAIL')
+            .eq('value', lowerEmail)
+            .single();
 
-    // 2. Check Domain Allowlist
-    if (ALLOWED_DOMAINS.map(d => d.toLowerCase()).includes(domain)) return true;
+        if (emailMatch) return true;
 
+        // 2. 查詢是否符合 DOMAIN 規則
+        const { data: domainMatch, error: domainError } = await supabase
+            .from('access_control')
+            .select('*')
+            .eq('type', 'DOMAIN')
+            .eq('value', domain)
+            .maybeSingle();
+
+        if (domainMatch) return true;
+
+    } catch (e) {
+        console.error("Permission check failed:", e);
+        return false;
+    }
+    
     return false;
   };
 
@@ -29,10 +50,12 @@ const LoginPage: React.FC = () => {
 
     const lowerEmail = email.toLowerCase().trim();
 
-    // 1. 前端權限檢查
-    if (!checkPermission(lowerEmail)) {
+    // 1. 資料庫權限檢查
+    const isAllowed = await checkPermissionFromDB(lowerEmail);
+
+    if (!isAllowed) {
         setIsLoading(false);
-        setErrorMsg('抱歉，此 Email 信箱無權存取本系統。請使用公司信箱或聯繫管理員。');
+        setErrorMsg('抱歉，您的 Email 不在允許名單中。請聯繫管理員新增權限。');
         return;
     }
 
@@ -120,13 +143,11 @@ const LoginPage: React.FC = () => {
                             存取限制 (Access Control)
                         </div>
                         <p className="text-xs text-blue-600/80 leading-relaxed">
-                            本系統僅限以下人員登入：
+                            本系統已啟用雲端白名單驗證。
                         </p>
-                        <ul className="text-xs text-blue-600/80 list-disc list-inside mt-1 space-y-0.5">
-                            <li>專案開發人員</li>
-                            <li>網域為 <span className="font-mono bg-blue-100 px-1 rounded text-blue-800">{ALLOWED_DOMAINS[0] || '...'}</span> 的員工</li>
-                            <li>授權白名單用戶</li>
-                        </ul>
+                        <p className="text-xs text-blue-600/80 mt-1">
+                            若您無法登入，請確認您已在組織的授權清單中。
+                        </p>
                     </div>
 
                     <button 
@@ -147,6 +168,7 @@ const LoginPage: React.FC = () => {
         {/* Footer */}
         <div className="bg-gray-50 p-4 text-center border-t border-gray-100">
             <p className="text-[10px] text-gray-400">
+                <span className="font-mono mr-2">{APP_VERSION}</span>
                 &copy; {new Date().getFullYear()} PatentVault Pro. All rights reserved.
             </p>
         </div>
