@@ -1,6 +1,6 @@
 # 📘 PatentVault Pro - 企業級專利管理系統
 
-**版本**: v1.1.0 (Safe Mode)
+**版本**: v1.2.0 (DB Auth)
 **維護者**: Robin Hsu, Rachel Chiang, Dora Fu
 
 ## 1. 專案簡介 (Introduction)
@@ -17,8 +17,7 @@ PatentVault Pro 是一個專為企業法務與智權部門設計的現代化專�
 *   **防呆與提醒 (Safety & Alert)**：
     *   **視覺化狀態**：透過紅/綠/橘燈號直觀顯示專利狀態。
     *   **主動提醒**：系統自動計算年費到期日，並在儀表板與列表中高亮顯示即將到期 (90天內) 的案件。
-    *   **資料安全 (v1.1)**：重置資料前強制備份，並需輸入驗證碼確認。
-*   **權限控制 (RBAC)**：僅允許特定網域 (如 `91app.com`, `nine-yi.com`) 或白名單內的 Email 登入。
+*   **權限控制 (RBAC)**：基於資料庫的角色權限管理，支援動態指派角色與權限。
 
 ---
 
@@ -52,121 +51,168 @@ npm run build
 
 ---
 
-## 5. 系統設定與第三方服務 (Configuration)
+## 5. 系統設定 (Configuration)
 
 本系統依賴 **Supabase** 與 **Google AI Studio**。
 
 ### A. Supabase 設定 (資料庫)
-
-1.  前往 [Supabase](https://supabase.com/) 建立專案。
-2.  在 `services/supabaseService.ts` 中填入 `SUPABASE_URL` 與 `SUPABASE_KEY`。
-3.  進入 Supabase **SQL Editor**，執行以下指令建立資料表與權限：
-
-#### 基礎資料表
-```sql
--- 1. 建立專利資料表
-create table patents (
-  id text primary key,
-  name text not null,
-  patentee text,
-  country text,
-  status text,
-  type text,
-  "appNumber" text,
-  "pubNumber" text,
-  "appDate" text,
-  "pubDate" text,
-  duration text,
-  "annuityDate" text,
-  "annuityYear" numeric,
-  "notificationEmails" text,
-  inventor text,
-  abstract text,
-  link text,
-  created_at timestamptz default now()
-);
-
--- 2. 建立郵件紀錄表
-create table "emailLogs" (
-  id text primary key,
-  timestamp text,
-  "patentName" text,
-  recipient text,
-  subject text,
-  status text,
-  created_at timestamptz default now()
-);
-
--- 3. 建立自動備份資料表 (v1.1新增)
-create table "patent_backups" (
-  id uuid primary key default gen_random_uuid(),
-  "backupId" text not null,
-  "archivedAt" timestamptz default now(),
-  "originalId" text,
-  "patentData" jsonb
-);
-
--- 4. 開放權限 (配合目前的免登入/模擬登入模式)
-alter table "patents" enable row level security;
-alter table "emailLogs" enable row level security;
-alter table "patent_backups" enable row level security;
-
-create policy "Enable full access for everyone" on "patents" for all using (true) with check (true);
-create policy "Enable full access for everyone" on "emailLogs" for all using (true) with check (true);
-create policy "Enable full access for everyone" on "patent_backups" for all using (true) with check (true);
-```
+請在 `services/supabaseService.ts` 中填入 Project URL 與 Key。需建立 `patents`, `access_control`, `app_roles`, `action_logs` 等資料表。
 
 ### B. Google Gemini 設定 (AI)
-
-1.  前往 [Google AI Studio](https://aistudio.google.com/) 申請 API Key。
-2.  本專案目前設定於 `process.env.API_KEY` 或直接在 `services/geminiService.ts` 內讀取環境變數。
+本專案目前設定於 `process.env.API_KEY` 或直接在 `services/geminiService.ts` 內讀取環境變數。
 
 ---
 
 ## 6. 功能實作細節 (Implementation Details)
 
-### 身份驗證 (`LoginPage.tsx`, `App.tsx`)
-*   **邏輯**：
-    *   檢查 Email 是否在 `constants.ts` 的 `ALLOWED_DOMAINS` 或 `ALLOWED_EMAILS` 白名單中。
-    *   **免登入模式**：若未偵測到 Supabase Session，系統會自動模擬 `ALLOWED_EMAILS[0]` (預設管理員) 的身份進入系統，跳過登入畫面。
+### 身份驗證與權限 (RBAC)
+*   **混合驗證**：支援 Supabase Auth (Magic Link) 登入。
+*   **動態權限**：登入後，系統會根據 User Email 查詢資料庫中的角色 (Role)，並根據角色權重 (`ROLE_LEVELS`) 決定最終權限。
+*   **權限守門員**：前端使用 `<PermissionGuard />` 元件包裹敏感按鈕，無權限者無法看見操作入口。
 
-### 安全備份 (`App.tsx`)
-*   **觸發**：僅超級管理員可看見「重置範例資料」按鈕。
-*   **流程**：
-    1.  彈出 `prompt` 視窗，要求輸入 `RESET`。
-    2.  讀取當前所有 `patents` 資料。
-    3.  將資料打包寫入 `patent_backups` 表，並附帶 `backupId` (時間戳)。
-    4.  若備份成功，才執行重置 (Upsert Mock Data)。
+### AI 智慧匯入
+*   **多模態解析**：支援 Excel (.xlsx) 批次匯入，以及 PDF/文字 的 AI 語意解析。
+*   **格式標準化**：AI 強制輸出符合 `Patent` 介面的 JSON 格式。
 
-### AI 智慧匯入 (`ImportModal.tsx`)
-*   **支援格式**：Excel (.xlsx), PDF, 純文字。
-*   **Excel**：使用 `xlsx` 解析，批次匯入多筆資料。
-*   **AI 解析**：將文字或 PDF 內容傳送至 Gemini-3-Flash 模型，並強制輸出為符合 `Patent` 介面的 JSON 格式。
-
-### 數據儀表板 (`PatentStats.tsx`)
-*   使用 `Recharts` 繪製圖表。
-*   **圓餅圖**：案件類型佔比。
-*   **長條圖**：申請國家分佈。
-*   **堆疊圖**：專利權人 x 類型/國家 交叉分析。
+### 系統日誌 (Logging)
+*   **行為追蹤**：記錄登入、刪除、匯入等關鍵操作。
+*   **環境偵測**：自動記錄操作者的 IP 位址與瀏覽器/作業系統資訊。
 
 ---
 
-## 7. 檔案結構 (Project Structure)
+## 7. 系統架構與檔案結構 (System Architecture)
+
+### 7.1 核心架構流程 (Architecture Overview)
+
+本系統採用 **單頁應用程式 (SPA)** 架構，前後端分離設計：
+
+*   **View Layer (UI)**: React 19 + Tailwind CSS。
+*   **Logic Layer**: TypeScript 負責型別安全與業務邏輯。
+*   **Data Layer**: Supabase (PostgreSQL) 負責資料儲存與即時權限驗證 (RLS)。
+*   **AI Layer**: Google Gemini API 負責非結構化資料解析與自然語言問答。
+
+### 7.2 資料流向 (Data Flow)
+
+1.  **驗證 (Auth)**: `LoginPage` -> Supabase Auth (Magic Link) -> `App.tsx` (Session State)。
+2.  **權限 (RBAC)**: `App.tsx` 讀取 User Email -> 查詢 `access_control` 表 -> 計算權重 (`ROLE_LEVELS`) -> 決定 `currentUserRole` -> `PermissionGuard` 控制 UI 渲染。
+3.  **專利操作**: `PatentTable` -> `supabaseService` -> DB CRUD。
+4.  **日誌 (Logging)**: 用戶操作 -> `logService` -> 收集 IP/Browser -> 寫入 `action_logs`。
+
+### 7.3 詳細目錄結構 (Directory Structure)
 
 ```
 /
-├── App.tsx             # 主應用程式邏輯 (路由、狀態管理、備份邏輯)
-├── constants.ts        # 設定檔 (白名單、Mock Data)
-├── types.ts            # TypeScript 型別定義
+├── index.html              # 應用程式入口點 (Entry Point)
+├── index.tsx               # React 掛載點
+├── App.tsx                 # [核心] 主控制器：負責路由、全局狀態、權限載入
+├── types.ts                # [核心] TypeScript 型別定義 (Patent, User, Logs, Roles)
+├── constants.ts            # 全域常數、Mock Data、版本號
+├── vite.config.ts          # Vite 建置設定
 │
-├── components/         # UI 元件
-│   ├── PatentTable.tsx      # 列表表格 (含到期日計算)
-│   ├── PatentStats.tsx      # 統計圖表 (Recharts)
-│   ├── AIChat.tsx           # AI 聊天視窗 (Gemini)
-│   ├── ImportModal.tsx      # 匯入模態框 (AI/Excel)
-│   └── ...
+├── components/             # UI 元件庫
+│   ├── AccessControlModal.tsx  # [後台] 系統管理：使用者名單、角色權限、登入日誌 (含 IP 偵測)
+│   ├── AIChat.tsx              # [AI] 懸浮聊天視窗 (整合 Gemini 3)
+│   ├── DeleteConfirmModal.tsx  # 刪除確認對話框
+│   ├── EditModal.tsx           # 專利編輯表單
+│   ├── EmailPreviewModal.tsx   # 郵件預覽與發送介面
+│   ├── ImportModal.tsx         # [AI] 智慧匯入 (Excel/PDF/Text 解析)
+│   ├── LogModal.tsx            # 郵件發送紀錄檢視
+│   ├── LoginPage.tsx           # 登入頁面 (含 Supabase Auth 與權限檢查)
+│   ├── PatentStats.tsx         # [儀表板] 視覺化統計圖表 (Recharts)
+│   ├── PatentTable.tsx         # [清單] 專利資料表格 (含到期日計算與燈號邏輯)
+│   └── PermissionGuard.tsx     # [權限] 前端權限守門員 (HOC)
 │
-└── services/           # API 服務層
-    ├── supabaseService.ts   # 資料庫連線實例
-    └── geminiService.ts     # AI API 呼叫邏輯
+└── services/               # 外部服務整合層
+    ├── geminiService.ts        # Google Gemini AI 整合 (Chat & Parsing)
+    ├── logService.ts           # 系統操作日誌 (含 Throttle 防抖與環境偵測)
+    └── supabaseService.ts      # Supabase Client 初始化
+```
+
+---
+
+## 8. 系統管理後台功能詳解 (System Admin Panel Guide)
+
+本系統包含一個功能強大的管理後台 (`AccessControlModal.tsx`)，用於集中管理使用者、角色權限與系統日誌。若需將此功能移植至其他專案，請參考以下規格。
+
+### 8.1 使用者名單管理 (User Management)
+
+此模組負責控制誰可以登入系統 (白名單機制) 以及他們擁有的初始角色。
+
+*   **註冊方式 (Registration)**:
+    *   本系統採用 **封閉式白名單 (Closed Whitelist)**。
+    *   使用者無法自行註冊，必須由管理員在此後台新增其 Email 或 Domain。
+*   **新增使用者/網域**:
+    *   **類型選擇**: 支援 `單一 Email` (如 `user@company.com`) 或 `網域` (如 `company.com`)。
+    *   **指派角色**: 支援多選角色。系統會自動依照 `ROLE_LEVELS` (權重) 由高至低排序顯示 (例如: ADMIN Lv.100 > IT Lv.80 > USER Lv.10)。
+    *   **重複檢測**: 輸入時若偵測到該使用者已存在，會顯示黃色警告提示，確認後將執行「權限覆蓋/更新」。
+*   **Notion 風格智能搜尋 (Smart Search UI)**:
+    *   **置頂搜尋列 (Sticky Header)**: 列表滾動時，搜尋框與篩選器會固定在頂部。
+    *   **關鍵字高亮 (Highlighting)**: 搜尋結果中的關鍵字會以黃底高亮顯示 (`HighlightText` 元件)。
+    *   **角色篩選器 (Role Filter)**: 可點擊上方 Role Chips (如 "ADMIN", "USER") 快速篩選特定角色的使用者。
+*   **列表呈現**:
+    *   **自動合併顯示**: 同一個 Email 若有多個角色，會在同一列以 Tags 顯示。
+    *   **別名同步**: 針對特定網域 (如 `91app.com` 與 `nine-yi.com`) 提供自動別名顯示。
+
+### 8.2 角色與權限設定 (Role & Permission Settings)
+
+此模組實現了 RBAC (Role-Based Access Control) 的核心配置。
+
+*   **角色管理 (CRUD)**:
+    *   **新增角色**: 輸入名稱 (自動轉大寫) 即可建立新角色 (e.g., `AUDITOR`)。
+    *   **刪除角色**: 預設系統角色 (`ADMIN`, `USER`) 受保護無法刪除，其餘自定義角色可刪除。
+    *   **角色改名 (Rename)**: 支援修改角色名稱。
+        *   *Migration Logic*: 改名時，系統會自動搜尋所有擁有舊角色名稱的使用者，並將其更新為新角色名稱，確保權限不中斷。
+*   **權限編輯 (Permission Matrix)**:
+    *   左側選擇角色，右側顯示權限勾選清單。
+    *   支援的權限顆粒度 (`PERMISSIONS`): `VIEW_DASHBOARD`, `EDIT_PATENT`, `DELETE_PATENT`, `IMPORT_DATA`, `EXPORT_DATA`, `SEND_EMAIL`, `AI_CHAT`, `MANAGE_ACCESS` 等。
+    *   點擊「儲存權限」後即時寫入資料庫。
+
+### 8.3 登入日誌 (Login Logs)
+
+用於資安稽核與異常排除。
+
+*   **紀錄內容**:
+    *   **登入時間**: 使用者成功取得 Session 的時間。
+    *   **使用者 Email**: 操作者帳號。
+    *   **IP Address**: 透過 `ipify` API 獲取的客戶端 IP。
+    *   **裝置指紋**: 瀏覽器 (Chrome/Safari) 與作業系統 (Windows/MacOS) 資訊。
+*   **資料來源**: 讀取 `action_logs` 資料表中 `action = 'LOGIN'` 的紀錄。
+
+### 8.4 資料庫結構參考 (Database Schema)
+
+若要 100% 複製此後台功能，請在 Supabase 執行以下 SQL 建立對應 Table：
+
+```sql
+-- 1. 角色定義表 (App Roles)
+CREATE TABLE app_roles (
+    role_name text PRIMARY KEY, -- e.g., 'ADMIN', 'USER'
+    permissions text[] DEFAULT '{}', -- e.g., ['view_dashboard', 'edit_patent']
+    description text,
+    created_at timestamptz DEFAULT now()
+);
+
+-- 初始資料種子
+INSERT INTO app_roles (role_name, permissions, description) VALUES
+('ADMIN', '{"view_dashboard","view_list","view_logs","manage_access","edit_patent","delete_patent","import_data","export_data","send_email","ai_chat"}', '系統管理員'),
+('USER', '{"view_dashboard","view_list","ai_chat"}', '一般使用者');
+
+
+-- 2. 權限白名單表 (Access Control)
+CREATE TABLE access_control (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    type text NOT NULL CHECK (type IN ('EMAIL', 'DOMAIN')), -- 'EMAIL' or 'DOMAIN'
+    value text NOT NULL, -- 'user@example.com' or 'example.com'
+    role text REFERENCES app_roles(role_name) ON UPDATE CASCADE ON DELETE SET NULL,
+    created_at timestamptz DEFAULT now()
+);
+
+-- 3. 系統日誌表 (Action Logs)
+CREATE TABLE action_logs (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_email text,
+    action text NOT NULL, -- 'LOGIN', 'DELETE_PATENT', etc.
+    target text,
+    details jsonb, -- 儲存 IP, UserAgent 等詳細資訊
+    created_at timestamptz DEFAULT now()
+);
 ```
